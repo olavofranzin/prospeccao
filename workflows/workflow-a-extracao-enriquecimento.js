@@ -1,5 +1,5 @@
 
-import { workflow, node, trigger, ifElse, newCredential, expr, placeholder, splitInBatches, nextBatch, languageModel, tool, fromAi } from '@n8n/workflow-sdk';
+import { workflow, node, trigger, ifElse, newCredential, expr, placeholder, splitInBatches, nextBatch, languageModel } from '@n8n/workflow-sdk';
 
 // Workflow A: Google Maps - Extracao e Enriquecimento
 // ID: 5L3SyzDkZqf1N6vW
@@ -149,42 +149,17 @@ const sheetsUpsert = node({
   },
 });
 
+// gemini-2.0-flash-search-grounding has Google Search built in —
+// the model queries Google automatically during generation, no extra tool needed.
 const geminiModel = languageModel({
   type: 'lmChatGoogleGemini',
   config: {
-    name: 'Gemini Flash',
+    name: 'Gemini Search Grounding',
     parameters: {
-      modelName: 'models/gemini-2.5-flash',
+      modelName: 'models/gemini-2.0-flash-search-grounding',
       options: {},
     },
-    credentials: newCredential('googleGeminiApi'),
-  },
-});
-
-const perplexityTool = tool({
-  type: 'n8n-nodes-base.perplexityTool',
-  version: 2,
-  config: {
-    name: 'Pesquisa Web',
-    parameters: {
-      resource: 'chat',
-      operation: 'complete',
-      model: 'sonar-pro',
-      messages: {
-        message: [
-          {
-            role: 'user',
-            content: fromAi('query', 'Search query to research the lead company on the web'),
-          },
-        ],
-      },
-      simplify: true,
-      options: {
-        searchMode: 'web',
-        searchRecency: 'year',
-      },
-    },
-    credentials: newCredential('perplexityApi'),
+    credentials: newCredential('googlePalmApi'),
   },
 });
 
@@ -197,8 +172,7 @@ const agentEnriquecimento = node({
       promptType: 'define',
       systemMessage: `Você é um especialista em inteligência comercial B2B.
 Sua função é pesquisar e analisar leads para uma equipe de prospecção.
-Use a ferramenta "Pesquisa Web" para coletar informações antes de elaborar o relatório.
-Faça pelo menos 3 pesquisas distintas: capacidade financeira, análise do site e maturidade do mercado.
+Você tem acesso ao Google Search — use-o ativamente para buscar informações sobre a empresa, seu mercado e sua presença digital antes de elaborar o relatório.
 Cite as fontes encontradas. Seja objetivo e orientado à decisão comercial.`,
       text: expr(`{{ 'Pesquise e analise o seguinte lead para prospecção B2B:\\n\\n' +
 'DADOS DO LEAD:\\n' +
@@ -233,7 +207,6 @@ Cite as fontes encontradas. Seja objetivo e orientado à decisão comercial.`,
     },
     subnodes: {
       model: geminiModel,
-      tools: [perplexityTool],
     },
   },
 });
