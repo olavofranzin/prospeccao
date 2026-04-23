@@ -1,5 +1,5 @@
 
-import { workflow, node, trigger, ifElse, newCredential, expr, placeholder, splitInBatches, nextBatch, languageModel } from '@n8n/workflow-sdk';
+import { workflow, node, trigger, ifElse, newCredential, expr, placeholder, splitInBatches, nextBatch, languageModel, tool, fromAi } from '@n8n/workflow-sdk';
 
 // Workflow A: Google Maps - Extracao e Enriquecimento
 // ID: 5L3SyzDkZqf1N6vW
@@ -161,6 +161,33 @@ const geminiModel = languageModel({
   },
 });
 
+const perplexityTool = tool({
+  type: 'n8n-nodes-base.perplexityTool',
+  version: 2,
+  config: {
+    name: 'Pesquisa Web',
+    parameters: {
+      resource: 'chat',
+      operation: 'complete',
+      model: 'sonar-pro',
+      messages: {
+        message: [
+          {
+            role: 'user',
+            content: fromAi('query', 'Search query to research the lead company on the web'),
+          },
+        ],
+      },
+      simplify: true,
+      options: {
+        searchMode: 'web',
+        searchRecency: 'year',
+      },
+    },
+    credentials: newCredential('perplexityApi'),
+  },
+});
+
 const agentEnriquecimento = node({
   type: '@n8n/n8n-nodes-langchain.agent',
   version: 3.1,
@@ -168,19 +195,45 @@ const agentEnriquecimento = node({
     name: 'Agente de Enriquecimento',
     parameters: {
       promptType: 'define',
-      systemMessage: 'Você é um especialista em prospecção B2B. Analise os dados do lead e forneça insights estratégicos e acionáveis para a equipe de vendas.',
-      text: expr(`{{ 'Enriqueça os dados deste lead para prospecção B2B:\\n' +
-        'Nome: ' + $("Normalizar campos do lead").item.json.nome + '\\n' +
-        'Telefone: ' + $("Normalizar campos do lead").item.json.telefone + '\\n' +
-        'Site: ' + $("Normalizar campos do lead").item.json.site + '\\n' +
-        'Endereço: ' + $("Normalizar campos do lead").item.json.endereco + '\\n' +
-        'Categoria: ' + $("Normalizar campos do lead").item.json.categoria + '\\n' +
-        'Avaliação: ' + $("Normalizar campos do lead").item.json.rating + '\\n\\n' +
-        'Forneça: 1) Resumo do negócio, 2) Potencial de prospecção (alto/médio/baixo), 3) Sugestão de abordagem inicial, 4) Possíveis necessidades e dores.' }}`),
+      systemMessage: `Você é um especialista em inteligência comercial B2B.
+Sua função é pesquisar e analisar leads para uma equipe de prospecção.
+Use a ferramenta "Pesquisa Web" para coletar informações antes de elaborar o relatório.
+Faça pelo menos 3 pesquisas distintas: capacidade financeira, análise do site e maturidade do mercado.
+Cite as fontes encontradas. Seja objetivo e orientado à decisão comercial.`,
+      text: expr(`{{ 'Pesquise e analise o seguinte lead para prospecção B2B:\\n\\n' +
+'DADOS DO LEAD:\\n' +
+'- Nome: ' + $("Normalizar campos do lead").item.json.nome + '\\n' +
+'- Telefone: ' + $("Normalizar campos do lead").item.json.telefone + '\\n' +
+'- Site: ' + $("Normalizar campos do lead").item.json.site + '\\n' +
+'- Endereço: ' + $("Normalizar campos do lead").item.json.endereco + '\\n' +
+'- Categoria: ' + $("Normalizar campos do lead").item.json.categoria + '\\n' +
+'- Avaliação Google: ' + $("Normalizar campos do lead").item.json.rating + '\\n\\n' +
+'PESQUISAS OBRIGATÓRIAS:\\n\\n' +
+'1. CAPACIDADE FINANCEIRA\\n' +
+'Pesquise em fontes reconhecidas (Econodata, Serasa, LinkedIn, Receita Federal, notícias de negócios) ' +
+'informações sobre porte da empresa, número de funcionários, faturamento estimado, ' +
+'investimentos recentes, crescimento e presença em contratos ou licitações públicas.\\n\\n' +
+'2. ANÁLISE DO SITE (' + $("Normalizar campos do lead").item.json.site + ')\\n' +
+'Acesse e analise o site buscando: tempo de funcionamento e histórico da empresa, ' +
+'serviços e produtos oferecidos, possíveis clientes ou segmentos atendidos, ' +
+'como a empresa se posiciona no mercado, qualidade do conteúdo digital ' +
+'(SEO, blog, cases, depoimentos, CTAs) e lacunas de conteúdo que nossos serviços de ' +
+'comunicação e marketing podem sanar.\\n\\n' +
+'3. MATURIDADE DO MERCADO\\n' +
+'Pesquise o setor (' + $("Normalizar campos do lead").item.json.categoria + ') no Brasil: ' +
+'nível de digitalização, tendências atuais, pressões competitivas e como a maturidade ' +
+'do segmento impacta o comportamento de compra e investimento em marketing.\\n\\n' +
+'ESTRUTURE O RELATÓRIO COM AS SEÇÕES:\\n' +
+'A) Perfil Financeiro — capacidade de investimento (alta/média/baixa) com justificativa e fontes\\n' +
+'B) Análise da Presença Digital — pontos fortes e lacunas identificadas no site\\n' +
+'C) Maturidade do Setor — nível (inicial/em desenvolvimento/maduro) e impacto no negócio\\n' +
+'D) Potencial de Prospecção — (alto/médio/baixo) com motivo\\n' +
+'E) Abordagem Recomendada — tom, argumento principal e abertura sugerida para o primeiro contato' }}`),
       options: {},
     },
     subnodes: {
       model: geminiModel,
+      tools: [perplexityTool],
     },
   },
 });
